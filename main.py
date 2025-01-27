@@ -1,86 +1,3 @@
-# import re
-# from flask import Flask, request, jsonify
-# import nltk
-# from nltk.corpus import stopwords
-# from nltk.tokenize import word_tokenize
-# import string
-# from spellchecker import SpellChecker
-# import emoji
-# from contractions import fix
-# import pickle
-
-
-# nltk.download('punkt')
-# nltk.download('stopwords')
-
-
-# app = Flask(__name__)
-
-
-# with open('model.pkl', 'rb') as model_file:
-#     model = pickle.load(model_file)
-
-# with open('tokenizer.pkl', 'rb') as tokenizer_file:
-#     vectorizer = pickle.load(tokenizer_file)
-
-# def enhanced_preprocess_text(text):
-#     text = text.lower()
-#     text = fix(text)
-#     text = re.sub(r'http\S+|www\S+|https\S+', '', text)
-#     text = re.sub(r'<.*?>', '', text)
-#     text = re.sub(r'@\w+|#\w+', '', text)
-#     text = emoji.demojize(text)
-#     text = re.sub(r'[^a-z\s]', '', text)
-#     tokens = word_tokenize(text)
-    
-#     spell = SpellChecker()
-#     tokens = [spell.correction(word) for word in tokens]
-#     stop_words = set(stopwords.words('english'))
-#     tokens = [word for word in tokens if word not in stop_words]
-    
-#     tokens = [word for word in tokens if len(word) > 2]
-#     cleaned_text = ' '.join(tokens)
-    
-#     return cleaned_text
-
-# def Journal_prediction(new_sentences, vectorizer, model):
-#     label_mapping = {0: 'depressed', 1: 'normal'}
-    
-
-#     preprocessed_sentences = [enhanced_preprocess_text(sentence) for sentence in new_sentences]
-
-#     transformed_sentences = vectorizer.transform(preprocessed_sentences)
-    
-    
-#     new_predictions = model.predict(transformed_sentences)
-    
-#     if new_predictions[0] == 0:
-#         return "Depressed"
-#     else:
-#         return "Normal"
-    
-
-
-# @app.route('/predict', methods=['POST'])
-# def predict():
-#     try:
-#         data = request.json
-#         journal_entry = data.get('journal', '')
-
-#         if not journal_entry:
-#             return jsonify({'error': 'No journal entry provided'}), 400
-
-#         result = Journal_prediction(journal_entry, tokenizer_file, model_file)
-
-#         return jsonify({'prediction': result})
-    
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
-
-
 import re
 import pickle
 from flask import Flask, request, jsonify
@@ -90,6 +7,8 @@ from nltk.tokenize import word_tokenize
 from spellchecker import SpellChecker
 import emoji
 import contractions
+from pymongo import MongoClient
+from config import Config
 
 
 nltk.data.path.append('./nltk_data')  
@@ -122,6 +41,15 @@ except FileNotFoundError:
 
 app = Flask(__name__)
 
+app.config.from_object(Config)
+client = MongoClient(app.config['MONGO_URI'])
+
+db = client['users']
+users_collection = db['users']
+
+journal_db = client['Journal']
+journal_collection = journal_db['journal']
+
 def enhanced_preprocess_text(text):
     text = text.lower()
     text = contractions.fix(text)
@@ -143,7 +71,7 @@ def enhanced_preprocess_text(text):
     return ' '.join(tokens)
 
 
-'''def predict_journal(journal_entry):
+def predict_journal(journal_entry):
     label_mapping = {0: 'Depressed', 1: 'Normal'}
 
     preprocessed_text = enhanced_preprocess_text(journal_entry)
@@ -155,13 +83,16 @@ def enhanced_preprocess_text(text):
     return label_mapping.get(prediction, 'Unknown')
 
 
-journal = "I feel so tired and sad all the time. Nothing excites me anymore."
-predict_journal(journal)
-'''
+# journal = "I feel so tired and sad all the time. Nothing excites me anymore."
+# predict_journal(journal)
+
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.get_json()
+        user_id = data['user_id']
+        journal_id = data['journal_id']
         journal_entry = data['journal']
 
         if not journal_entry:
@@ -169,12 +100,49 @@ def predict():
 
         result = predict_journal(journal_entry)
 
-        print(result)
+        # Find the journal entry by user ID and journal ID
+        update_result = journal_collection.update_one(
+            {
+                '_id': user_id,
+                'journal.entries._id': journal_id
+            },
+            {
+                '$set': {
+                    'journal.$[].entries.$[entry].prediction': result
+                }
+            },
+            array_filters=[{'entry._id': journal_id}]
+        )
 
-        return jsonify({'prediction': result})
-    
+        if update_result.matched_count == 0:
+            return jsonify({'error': 'Journal entry not found'}), 404
+
+        return jsonify({
+            'message': 'Prediction saved successfully!',
+            'prediction': result
+        }), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# def predict():
+#     try:
+#         data = request.get_json()
+#         user_id = data['user_id']
+#         journal_id = data['journal_id']
+#         journal_entry = data['journal']
+
+#         if not journal_entry:
+#             return jsonify({'error': 'No journal entry provided'}), 400
+
+#         result = predict_journal(journal_entry)
+
+#         print(result)
+
+#         return jsonify({'prediction': result})
+    
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
