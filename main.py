@@ -143,7 +143,7 @@ def enhanced_preprocess_text(text):
     return ' '.join(tokens)
 
 
-def predict_journal(journal_entry):
+'''def predict_journal(journal_entry):
     label_mapping = {0: 'Depressed', 1: 'Normal'}
 
     preprocessed_text = enhanced_preprocess_text(journal_entry)
@@ -157,7 +157,7 @@ def predict_journal(journal_entry):
 
 journal = "I feel so tired and sad all the time. Nothing excites me anymore."
 predict_journal(journal)
-
+'''
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
